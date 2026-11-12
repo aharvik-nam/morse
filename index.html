@@ -1,0 +1,1002 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="theme-color" content="#FFFDF7">
+<title>Morse Trainer</title>
+<style>
+  :root {
+    /* "Japan Fish" palette */
+    --red: #D53302;
+    --yellow: #FCC560;
+    --mint: #A0CBAD;
+    --blue: #8FB1BE;
+    --navy: #00012A;
+    /* derived neutrals */
+    --paper: #FFFDF7;          /* card and panels */
+    --ink-soft: #33355a;       /* secondary text (navy tint) */
+    --line: rgba(0, 1, 42, .18);
+    --shadow: rgba(0, 1, 42, .22);
+    --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+    --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: linear-gradient(170deg, var(--mint) 0%, var(--blue) 100%) fixed;
+    color: var(--navy);
+    font-family: var(--sans);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    height: 100dvh;
+    -webkit-user-select: none;
+    user-select: none;
+    overflow: hidden;
+  }
+  button { font-family: inherit; color: inherit; -webkit-tap-highlight-color: transparent; }
+  button:focus-visible { outline: 3px solid var(--navy); outline-offset: 2px; }
+
+  /* ---- header ---- */
+  header {
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+    gap: 10px 16px; padding: 10px 20px;
+    background: var(--paper);
+    border-bottom: 2px solid var(--navy);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-size: 15px; letter-spacing: .14em; font-weight: 700; }
+  .brand i { width: 11px; height: 11px; border-radius: 50%; background: var(--red); }
+  .brand span { font-weight: 400; color: var(--ink-soft); }
+  .controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .group { display: flex; align-items: center; gap: 8px; }
+  .seg { display: inline-flex; align-items: center; padding: 3px; border: 2px solid var(--navy); border-radius: 11px; background: var(--paper); }
+  .seg button {
+    border: 0; background: none; padding: 5px 14px; border-radius: 7px;
+    font-size: 14px; font-weight: 600; color: var(--navy); cursor: pointer;
+  }
+  .seg button:hover { background: rgba(0, 1, 42, .08); }
+  .seg button.on { background: var(--navy); color: var(--paper); }
+  .seg button:disabled { opacity: .3; cursor: default; background: none; }
+  .seg span { font-size: 14px; font-weight: 700; padding: 0 8px; min-width: 76px; text-align: center; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 2px solid var(--navy); background: var(--paper); border-radius: 11px;
+    padding: 6px 12px; font-size: 14px; font-weight: 600; color: var(--navy); cursor: pointer;
+    transition: background .15s;
+  }
+  .chip.toggle::before {
+    content: ""; width: 10px; height: 10px; border-radius: 50%;
+    border: 2px solid var(--navy); background: transparent;
+  }
+  .chip:hover { background: #fff3d6; }
+  .chip.on { background: var(--yellow); }
+  .chip.on::before { background: var(--navy); }
+  .sep { width: 2px; height: 20px; background: var(--line); margin: 0 2px; }
+
+  /* ---- stage ---- */
+  #stage { min-height: 0; padding: 20px 20px 8px; display: flex; align-items: center; justify-content: center; }
+  svg#card { width: 100%; height: 100%; max-width: 1100px; max-height: 760px; filter: drop-shadow(0 14px 26px var(--shadow)); }
+  svg#card.err { animation: shake .4s; }
+  @keyframes shake {
+    20% { transform: translateX(-6px); } 40% { transform: translateX(6px); }
+    60% { transform: translateX(-4px); } 80% { transform: translateX(4px); }
+  }
+  #bg { fill: var(--paper); stroke: var(--navy); }
+  #hole { fill: var(--blue); stroke: var(--navy); }
+  .edge { stroke: var(--navy); stroke-width: 2.5; stroke-linecap: round; transition: stroke .15s; }
+  .edge.lit { stroke: var(--red); stroke-width: 4.5; }
+  .node { cursor: pointer; }
+  .node .shape { fill: var(--paper); stroke: var(--navy); stroke-width: 2.5; transition: fill .15s; }
+  .node text, .title { fill: var(--navy); font-family: var(--sans); }
+  .node text { font-size: 19px; text-anchor: middle; font-weight: 600; }
+  .node text.punct { font-size: 23px; font-weight: 700; }
+  .node.new .shape { fill: var(--mint); }             /* letters introduced on this level */
+  .node:hover .shape { fill: #fff3d6; }
+  /* highlighted path to the next letter */
+  .halo { stroke: var(--yellow); stroke-width: 13; stroke-linecap: round; opacity: 0; transition: opacity .2s; }
+  .halo.on { opacity: 1; }
+  .node.guide .shape { fill: #ffe7b0; }
+  .node.target .shape { fill: var(--yellow); stroke-width: 4; animation: beat .7s infinite alternate; }
+  @keyframes beat {
+    from { filter: drop-shadow(0 0 0 rgba(213, 51, 2, 0)); }
+    to { filter: drop-shadow(0 0 9px rgba(213, 51, 2, .7)); }
+  }
+  .node.target text { font-weight: 800; }
+  /* the light */
+  .node.trail .shape { fill: var(--yellow); }
+  .node.active .shape {
+    fill: var(--red);
+    filter: drop-shadow(0 0 5px rgba(213, 51, 2, .75)) drop-shadow(0 0 14px rgba(213, 51, 2, .5));
+  }
+  .node.active text { fill: var(--red); font-weight: 800; }
+  .node.preview .shape { fill: var(--yellow); animation: pulse .5s infinite alternate; }
+  @keyframes pulse { from { fill-opacity: .25; } to { fill-opacity: 1; } }
+  /* error: the path goes dark */
+  svg.err .node.active .shape, svg.err .node.trail .shape { fill: var(--navy); filter: none; }
+  svg.err .node.active text { fill: var(--navy); }
+  svg.err .edge.lit { stroke: var(--navy); }
+  .antenna { stroke: var(--red); stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .title { font-size: 26px; letter-spacing: .16em; font-weight: 400; }
+  /* tree layout: labels sit inside the pads */
+  .edge.dot { stroke-dasharray: 0.1 7; stroke-width: 3.2; }
+  .edge.dot.lit { stroke-width: 5; }
+  .edge.dash { stroke-dasharray: 9 6; }
+  svg.tree .node text { pointer-events: none; }
+  svg.tree .node.active text { fill: var(--paper); }
+  svg.tree.err .node.active text, svg.tree.err .node.trail text { fill: var(--paper); }
+  #start circle { fill: var(--yellow); stroke: var(--navy); stroke-width: 3; }
+  #start text, .dir { fill: var(--navy); font-family: var(--sans); text-anchor: middle; }
+  #start text { font-size: 15px; font-weight: 600; }
+  .dir { font-size: 17px; letter-spacing: .2em; font-weight: 600; }
+
+  /* ---- dock ---- */
+  #dock { width: 100%; max-width: 600px; margin: 0 auto; padding: 4px 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+  #status { font-size: 14px; color: var(--navy); text-align: center; min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; }
+  #status.word { flex-direction: column; gap: 8px; }
+  #status .tiles { display: flex; align-items: center; gap: 6px; }
+  #status .sub { font-size: 13px; }
+  #status .sub b { font-weight: 700; }
+  #status.bad { font-weight: 700; background: var(--red); color: var(--paper); border-radius: 9px; padding: 0 12px; align-self: center; }
+  #status i.w {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 34px; height: 40px; border: 2px solid var(--navy); border-radius: 8px;
+    background: var(--paper); font: 700 21px var(--mono); font-style: normal;
+  }
+  #status i.w.done { background: var(--navy); color: var(--paper); }
+  #status i.w.cur { background: var(--yellow); box-shadow: 0 3px 0 var(--navy); transform: translateY(-2px); }
+  #status .tick { font-size: 24px; font-weight: 800; margin-left: 6px; }
+  kbd {
+    font-family: var(--sans); font-size: 12px; font-weight: 600; color: var(--navy);
+    border: 2px solid var(--navy); border-bottom-width: 3px; border-radius: 6px;
+    padding: 0 6px; background: var(--paper);
+  }
+  #readout {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--paper); border: 2px solid var(--navy); border-radius: 12px;
+    padding: 0 6px 0 16px; height: 52px;
+  }
+  #symbols { font-family: var(--mono); font-size: 24px; font-weight: 700; color: var(--red); min-width: 76px; letter-spacing: 3px; white-space: nowrap; }
+  #text { flex: 1; min-width: 0; font-family: var(--mono); font-size: 20px; font-weight: 600; letter-spacing: 2px; white-space: pre; overflow: hidden; display: flex; justify-content: flex-end; align-items: center; }
+  #text::after { content: ""; width: 3px; height: 22px; margin-left: 3px; background: var(--red); animation: blink 1.1s steps(1) infinite; flex: none; }
+  @keyframes blink { 50% { opacity: 0; } }
+  #clear { border: 0; background: none; color: var(--navy); font-size: 12px; font-weight: 700; letter-spacing: .08em; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+  #clear:hover { background: rgba(0, 1, 42, .1); }
+  /* in Learn mode the box only shows the dots and dashes you send */
+  #dock.learn #text, #dock.learn #clear { display: none; }
+  #dock.learn #readout { justify-content: center; padding: 0 16px; }
+  #dock.learn #symbols { min-width: 0; }
+  #dock.learn #symbols:empty::before {
+    content: "Your dots and dashes show up here";
+    font: 500 13px var(--sans); letter-spacing: 0; color: var(--ink-soft);
+  }
+
+  #key, .keybtn {
+    height: 72px; border-radius: 14px; border: 2px solid var(--navy);
+    background: var(--yellow);
+    color: var(--navy); font-size: 12px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase;
+    cursor: pointer; touch-action: none;
+    box-shadow: 0 5px 0 var(--navy);
+    transition: transform .04s, box-shadow .04s, background .08s;
+  }
+  #key:hover, .keybtn:hover { background: #ffd27a; }
+  #key .sym, .keybtn .sym { font-family: var(--mono); font-size: 24px; display: block; line-height: 1.1; letter-spacing: 0; margin-bottom: 3px; }
+  #key.down, .keybtn:active, .keybtn.down {
+    transform: translateY(4px); box-shadow: 0 1px 0 var(--navy);
+    background: var(--red); color: var(--paper);
+  }
+  #paddles { display: none; gap: 10px; }
+  #paddles button { flex: 1; }
+
+  /* ---- dialogs ---- */
+  dialog {
+    border: 2px solid var(--navy); border-radius: 16px; background: var(--paper); color: var(--navy);
+    padding: 0; width: min(600px, calc(100vw - 24px)); max-height: calc(100dvh - 40px);
+    box-shadow: 0 24px 60px var(--shadow);
+    -webkit-user-select: text; user-select: text;
+  }
+  dialog::backdrop { background: rgba(0, 1, 42, .5); }
+  .dlg-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 2px solid var(--navy); position: sticky; top: 0; background: var(--paper); }
+  .dlg-head h2 { margin: 0; font-size: 18px; letter-spacing: .04em; }
+  .dlg-body { padding: 6px 20px 20px; }
+  .dlg-body h3 { font-size: 15px; margin: 18px 0 4px; }
+  .dlg-body p, .dlg-body li { font-size: 14px; line-height: 1.5; margin: 4px 0; color: var(--ink-soft); }
+  .dlg-body ul { margin: 4px 0; padding-left: 20px; }
+  .dlg-body b { color: var(--navy); }
+  .setting { padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .setting:last-child { border-bottom: 0; }
+  .setting .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .setting .name { font-size: 15px; font-weight: 700; }
+  .setting input[type=range] { width: 170px; accent-color: var(--navy); vertical-align: middle; }
+  .setting output { font-family: var(--mono); font-weight: 700; font-size: 13px; margin-left: 8px; }
+  .swatch { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--navy); border-radius: 50%; vertical-align: -1px; margin-right: 2px; }
+  .tag { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; border: 1.5px solid var(--navy); border-radius: 6px; padding: 1px 6px; margin-left: 6px; vertical-align: 1px; }
+  .dlg-foot { padding: 0 20px 18px; display: flex; justify-content: flex-end; }
+  .dlg-foot .chip { padding: 9px 26px; font-size: 15px; box-shadow: 0 3px 0 var(--navy); }
+  #lvBody .facts { list-style: none; padding: 0; margin: 14px 0 0; border: 2px solid var(--navy); border-radius: 12px; overflow: hidden; }
+  #lvBody .facts li { display: flex; gap: 12px; padding: 8px 12px; margin: 0; border-bottom: 1px solid var(--line); color: var(--navy); }
+  #lvBody .facts li:last-child { border-bottom: 0; }
+  #lvBody .facts span:first-child { flex: 0 0 120px; font-weight: 700; }
+  #lvBody .facts .mono { font-family: var(--mono); font-weight: 700; letter-spacing: 3px; }
+  #lvBody .harder { background: #fff3d6; border-left: 5px solid var(--yellow); border-radius: 6px; padding: 8px 12px; color: var(--navy); }
+  #lvLabel { min-width: 150px; }
+  table.diff td:nth-child(2) { white-space: nowrap; }
+  table.diff { border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+  table.diff td, table.diff th { border: 1px solid var(--line); padding: 3px 9px; text-align: left; }
+
+  @media (max-width: 620px) {
+    header { padding: 8px 12px; justify-content: center; }
+    .brand span, .sep { display: none; }
+    .chip { padding: 5px 10px; }
+    #stage { padding: 12px 10px 4px; }
+    #status .extra { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><i></i>MORSE <span>TRAINER</span></div>
+  <div class="controls">
+    <div class="seg" role="group" aria-label="Mode">
+      <button id="segLearn" title="Guided lessons: spell words, one level at a time">Learn</button>
+      <button id="segFree" title="Send anything you like and watch it being decoded">Free</button>
+    </div>
+    <div class="group" id="learnCtl">
+      <div class="seg" role="group" aria-label="Level">
+        <button id="lvDown" aria-label="Previous level">◀</button>
+        <button id="lvLabel" title="Show what this level is about"></button>
+        <button id="lvUp" aria-label="Next level">▶</button>
+      </div>
+    </div>
+    <div class="group" id="freeCtl">
+      <button class="chip toggle" id="optN" title="Show the digits 0–9 on the chart">Numbers</button>
+      <button class="chip toggle" id="optP" title="Show punctuation marks on the chart">Punctuation</button>
+    </div>
+    <div class="sep"></div>
+    <button class="chip" id="btnSettings" title="Chart layout, key type, speed and sound">Settings</button>
+    <button class="chip" id="btnHelp" title="What everything is and how it works">Help</button>
+  </div>
+</header>
+
+<main id="stage">
+  <svg id="card" xmlns="http://www.w3.org/2000/svg">
+    <rect id="bg" rx="14" stroke-width="4"/>
+    <g id="halos"></g>
+    <g id="edges"></g>
+    <g id="cardDeco">
+      <circle id="hole" r="10" stroke-width="3"/>
+      <text class="title" x="297" y="62" text-anchor="end">MORSE</text>
+      <text class="title" x="349" y="62">CODE</text>
+      <path class="antenna" transform="translate(90 0)" d="M232 128 V86 M232 112 L219 84 H245 Z M225.5 84 L232 100 L238.5 84"/>
+    </g>
+    <g id="treeDeco">
+      <text class="dir" x="250" y="62">◀ · · · &#160;DOT</text>
+      <text class="dir" x="750" y="62">DASH&#160; – – – ▶</text>
+      <g id="start"><circle cx="500" cy="58" r="27"/><text x="500" y="63">start</text></g>
+    </g>
+    <g id="nodes"></g>
+  </svg>
+</main>
+
+<section id="dock">
+  <div id="status"></div>
+  <div id="readout">
+    <div id="symbols"></div><div id="text"></div>
+    <button id="clear" title="Clear the decoded text">CLEAR</button>
+  </div>
+  <button id="key" title="Tap for a dot, hold for a dash"><span class="sym" id="keySym">&nbsp;</span>Key</button>
+  <div id="paddles">
+    <button class="keybtn" id="btnDot" title="Dot: the short sound. Hold to repeat."><span class="sym">←</span>Dot</button>
+    <button class="keybtn" id="btnDash" title="Dash: the long sound. Hold to repeat."><span class="sym">→</span>Dash</button>
+  </div>
+</section>
+
+<dialog id="dlgSettings">
+  <div class="dlg-head"><h2>Settings</h2><button class="chip" data-close>Close</button></div>
+  <div class="dlg-body">
+    <div class="setting">
+      <div class="top"><span class="name">Chart</span>
+        <div class="seg"><button id="segTree">Tree</button><button id="segCard">Card</button></div></div>
+      <p><b>Tree</b> is the easiest to read: from “start”, every dot takes you one step down to the left and every dash one step down to the right.
+         <b>Card</b> shows the same paths packed together like a pocket reference card: round pads are dots, bars are dashes.</p>
+    </div>
+    <div class="setting">
+      <div class="top"><span class="name">Key <span class="tag">Free mode</span></span>
+        <div class="seg"><button id="segTap">Buttons</button><button id="segPaddle">Paddle</button><button id="segStraight">Straight key</button></div></div>
+      <p><b>Buttons</b>: one press of <kbd>←</kbd> is one dot, one press of <kbd>→</kbd> is one dash. The simplest way to start.
+         <b>Paddle</b> uses the same two buttons, but keeps the rhythm for you like a real electronic keyer:
+         hold a button and it repeats, hold both and it alternates dot–dash.
+         <b>Straight key</b> is the classic single telegraph key (<kbd>Space</kbd>): a short press is a dot and a long press is a dash.</p>
+      <p>In Learn mode the level decides the key type and the speed, so these two settings only apply to Free mode.</p>
+    </div>
+    <div class="setting">
+      <div class="top"><span class="name">Paddle speed <span class="tag">Free mode</span></span>
+        <span><input type="range" id="wpm" min="3" max="20" step="1"><output id="wpmOut"></output></span></div>
+      <p>How fast the paddle sends, in words per minute (WPM). It sets the length of a dot; a dash is three dots long.
+         A pause of three dots ends a letter and seven ends a word.</p>
+    </div>
+    <div class="setting">
+      <div class="top"><span class="name">Sound</span>
+        <button class="chip toggle" id="sound">Beep</button></div>
+      <p>Plays the tone for every dot and dash, so you learn the sound together with the path.</p>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="dlgLevel">
+  <div class="dlg-head"><h2 id="lvTitle"></h2><button class="chip" data-close>Close</button></div>
+  <div class="dlg-body" id="lvBody"></div>
+  <div class="dlg-foot"><button class="chip on" data-close>Start</button></div>
+</dialog>
+
+<dialog id="dlgHelp">
+  <div class="dlg-head"><h2>How it works</h2><button class="chip" data-close>Close</button></div>
+  <div class="dlg-body">
+    <h3>Morse code in one minute</h3>
+    <p>Every letter is a short pattern of two sounds: a <b>dot</b> (short) and a <b>dash</b> (long, three times as long as a dot).
+       E is one dot, T is one dash, A is dot–dash.</p>
+    <h3>The chart</h3>
+    <p>The chart is a map of all the patterns. Begin at <b>start</b> for every letter. Each dot moves the light one step along a dotted line,
+       each dash one step along a dashed line. The letter you land on is the letter you sent.</p>
+    <ul>
+      <li><span class="swatch" style="background:var(--red)"></span> <b>Red</b>: where the light is now.</li>
+      <li><span class="swatch" style="background:var(--yellow)"></span> <b>Yellow</b>: the path you have taken, and in Learn mode the path you should take next.</li>
+      <li><span class="swatch" style="background:var(--mint)"></span> <b>Green</b>: letters that are new on this level.</li>
+    </ul>
+    <p>Click any letter to see and hear its pattern.</p>
+    <h3>Learn mode</h3>
+    <p>You spell a word one letter at a time. There is no time limit. A wrong press just starts that letter again.</p>
+    <ul>
+      <li>Each level has six words, and a short note pops up to tell you what is new. Click the level name to read it again.</li>
+      <li>After six words the next level opens. You can also step between levels with ◀ ▶.</li>
+    </ul>
+    <h3>What makes it harder</h3>
+    <p>Only one thing changes at a time:</p>
+    <ul>
+      <li><b>More characters.</b> Letters come a few at a time, shortest patterns first. Numbers and punctuation come last.</li>
+      <li><b>Less help on the chart.</b> First a yellow path shows the whole way. Then only the letter is marked. Then nothing is marked. A wrong turn always brings one step of help back for that letter.</li>
+      <li><b>The key.</b> You start with simple buttons. Later they become a paddle that repeats while you hold, and it gets faster.</li>
+      <li><b>The words.</b> A letter costs one point per dot or dash, plus one point every time the pattern switches between dot and dash. A word is the sum of its letters, and within a level you get the low-scoring words first.</li>
+    </ul>
+    <table class="diff" id="lvTable">
+      <tr><th>Level</th><th>New</th><th>Help on the chart</th><th>Key</th></tr>
+    </table>
+    <h3>Free mode</h3>
+    <p>Send whatever you like. Pause after a letter and it is written in the text box; a longer pause adds a space.
+       <b>Numbers</b> and <b>Punctuation</b> add those characters to the chart.</p>
+    <h3>Fixing a mistake</h3>
+    <p>In Free mode, send <b>seven or more dots in a row</b>. That is the Morse “error” sign, and it deletes the last word.</p>
+  </div>
+</dialog>
+
+<script>
+const DASH_MS = 220;      // straight key: hold at least this long for a dash
+const LETTER_GAP = 900;   // straight key: idle time that ends a character
+const WORD_GAP = 1600;    // straight key: further idle time that adds a space
+const WORDS_PER_LEVEL = 6;
+
+// Tree layout: positions come straight from the code (dot = left, dash = right)
+const TREE_Y = [58, 150, 240, 325, 405, 478, 540];
+const TREE_R = [27, 21, 20, 18, 16, 13, 10];
+const TREE_F = [0, 19, 19, 19, 17, 15, 13];
+function treeX(c) {
+  let x = 500;
+  for (let i = 0; i < c.length; i++) {
+    const off = i < 5 ? 250 / 2 ** i : 9;
+    x += c[i] === '.' ? -off : off;
+  }
+  return x;
+}
+
+// char: [code, x, y, shape, label dx, label dy]  (positions for the card layout)
+// Shapes: h / v = dash pad (horizontal / vertical), c = dot pad,
+//         sh / sv / sc = small unlabeled junction.
+// Keys starting with "_" are junctions: codes that are not a character themselves
+// but lead on to a digit or punctuation mark.
+const LETTERS = {
+  // ---- dash side ----
+  T: ['-',      280, 125, 'h',   0, -20], M: ['--',     215, 125, 'h',   0, -20],
+  O: ['---',    150, 125, 'h',   0, -20],
+  G: ['--.',    215, 285, 'c',  25,   7], Q: ['--.-',   150, 285, 'h',   0,  32],
+  Z: ['--..',   215, 345, 'c', -19, -14],
+  N: ['-.',     280, 405, 'c',  23, -10], K: ['-.-',    215, 405, 'h',   0, -18],
+  Y: ['-.--',   150, 405, 'h',   0, -18], C: ['-.-.',   215, 465, 'c',  25,   7],
+  D: ['-..',    280, 540, 'c',  23, -10], X: ['-..-',   210, 540, 'h',   0,  32],
+  B: ['-...',   280, 600, 'c',  25,   7],
+  // ---- dot side ----
+  E: ['.',      362, 125, 'c',   0, -20], I: ['..',     412, 125, 'c',   0, -20],
+  S: ['...',    510, 125, 'c',   0, -20], H: ['....',   560, 125, 'c',   0, -20],
+  U: ['..-',    412, 195, 'v', -23,   7], F: ['..-.',   412, 260, 'c', -24,   7],
+  V: ['...-',   510, 195, 'v',  23,   7],
+  A: ['.-',     362, 365, 'v', -23,   7], R: ['.-.',    412, 365, 'c',   0, -20],
+  L: ['.-..',   470, 365, 'c',   0, -20],
+  W: ['.--',    362, 545, 'v', -25,   7], P: ['.--.',   412, 545, 'c',   0,  33],
+  J: ['.---',   362, 610, 'v', -23,   7],
+  // ---- junctions ----
+  _a: ['----',   97, 125, 'sh', 0, 0], _b: ['---.',   150, 158, 'sc', 0, 0],
+  _c: ['..--',  446, 195, 'sh', 0, 0], _d: ['--..-',  175, 345, 'sh', 0, 0],
+  _e: ['-.-.-', 175, 465, 'sh', 0, 0], _f: ['..--.',  480, 195, 'sc', 0, 0],
+  _g: ['.-.-',  412, 399, 'sv', 0, 0], _h: ['.-..-',  470, 399, 'sv', 0, 0],
+  _i: ['.--.-', 448, 545, 'sh', 0, 0],
+  // ---- digits ----
+  1: ['.----',  416, 610, 'h',   0,  34], 2: ['..---',  446, 260, 'v',   0,  40],
+  3: ['...--',  510, 260, 'v',  23,   7], 4: ['....-',  560, 195, 'v',  23,   7],
+  5: ['.....',  605, 125, 'c',   0, -20], 6: ['-....',  215, 600, 'c',   0,  32],
+  7: ['--...',  258, 345, 'c',   0,  32], 8: ['---..',  150, 195, 'c',  24,   7],
+  9: ['----.',   55, 125, 'c',   0, -20], 0: ['-----',   97, 185, 'v', -23,   7],
+  // ---- punctuation ----
+  '.': ['.-.-.-', 412, 487, 'v', -23,   7], ',': ['--..--', 127, 345, 'h', -35,   4],
+  '?': ['..--..', 480, 232, 'c',   0,  34], "'": ['.----.', 476, 610, 'c',  24,  12],
+  '!': ['-.-.--', 127, 465, 'h', -35,   8], '/': ['-..-.',  153, 540, 'c', -24,   8],
+  '(': ['-.--.',   95, 405, 'c',   0, -19], ')': ['-.--.-',  40, 405, 'h',   0, -17],
+  '&': ['.-...',  520, 365, 'c',  26,   8], ':': ['---...', 150, 238, 'c',  24,   7],
+  ';': ['-.-.-.', 175, 502, 'c', -24,   7], '=': ['-...-',  280, 652, 'v',  25,   8],
+  '+': ['.-.-.',  412, 437, 'c', -25,   8], '-': ['-....-', 155, 600, 'h', -35,   7],
+  '"': ['.-..-.', 470, 437, 'c',  25,  12], '@': ['.--.-.', 486, 545, 'c',  28,   7],
+};
+const ROOT = { x: 322, y: 125 };
+const SMALL = { c: 'sc', h: 'sh', v: 'sv', sc: 'sc', sh: 'sh', sv: 'sv' };
+const SIZE = { h: [44, 20], v: [20, 42], sh: [22, 12], sv: [12, 22] };
+const category = k => k[0] === '_' && k.length > 1 ? 'J' : /[A-Z]/.test(k) ? 'L' : /[0-9]/.test(k) ? 'N' : 'P';
+
+// ---- learning curve ----
+// One thing gets harder at a time. Each level says:
+//   add    characters introduced here (levels 1-5 follow the depth of the tree: shortest codes first)
+//   hint   help on the chart: 'path' = yellow path, 'letter' = only the letter is marked, 'none'
+//   key    'tap' = one press, one sound; 'paddle' = keyer that repeats while held (at `wpm`)
+//   intro / harder   text for the pop-up shown when the level starts
+const LEVELS = [
+  { name: 'Two letters', add: 'ET', hint: 'path', key: 'tap',
+    intro: 'Morse code is made of two sounds: a <b>dot</b> (short) and a <b>dash</b> (long). Press <kbd>←</kbd> for a dot and <kbd>→</kbd> for a dash. <b>E</b> is one dot, <b>T</b> is one dash.',
+    harder: 'This is the starting point: one press per letter, and a yellow path on the chart shows you the way.' },
+  { name: 'Two presses', add: 'IANM', hint: 'path', key: 'tap',
+    intro: 'Four new letters, shown in green. Start at “start” for every letter and follow the yellow path.',
+    harder: 'Every new letter takes <b>two presses</b> instead of one, so the order of dot and dash starts to matter.' },
+  { name: 'Three presses', add: 'SURWDKGO', hint: 'path', key: 'tap',
+    intro: 'Eight new letters, and the words get longer. SOS is finally within reach.',
+    harder: 'The new letters take <b>three presses</b>, and there are twice as many of them to keep apart.' },
+  { name: 'Four presses, dot side', add: 'HVFLPJ', hint: 'path', key: 'tap',
+    intro: 'Six new letters on the left half of the chart. They all begin with a dot.',
+    harder: 'The new letters take <b>four presses</b>. One wrong press near the end sends you to a neighbour.' },
+  { name: 'The whole alphabet', add: 'BXCYZQ', hint: 'path', key: 'tap',
+    intro: 'The last six letters. They all begin with a dash. After this level the chart has every letter from A to Z.',
+    harder: 'Four presses again, and several of these switch back and forth between dot and dash (C is dash–dot–dash–dot).' },
+  { name: 'No more path', add: '', hint: 'letter', key: 'tap',
+    intro: 'You know all the letters. From now on the words can use any of them.',
+    harder: '<b>The yellow path is gone.</b> Only the letter you are heading for is marked, in yellow with a dark ring. You have to remember the way there yourself. A wrong turn brings the path back for that letter.' },
+  { name: 'No marking', add: '', hint: 'none', key: 'tap',
+    intro: 'Same letters, same buttons. The chart is still there to look at.',
+    harder: '<b>Nothing is marked any more.</b> You find the letter on the chart yourself, or send it from memory. A wrong turn marks the letter for you.' },
+  { name: 'The paddle', add: '', hint: 'none', key: 'paddle', wpm: 6,
+    intro: 'The buttons now work like a real electronic paddle. <b>Hold</b> <kbd>←</kbd> and it sends dot, dot, dot in a steady rhythm. Hold <kbd>→</kbd> for dash, dash, dash. Hold both and it alternates.',
+    harder: '<b>Timing.</b> A short tap still gives one sound, but if you hold too long you send one too many. Let go on the right beat. Speed: 6 words per minute.' },
+  { name: 'Numbers', add: '1234567890', hint: 'letter', key: 'paddle', wpm: 8,
+    intro: 'The digits 0–9 appear at the bottom of the chart. Every digit is five sounds: 1 is dot and four dashes, 5 is five dots, 6 is dash and four dots. The marking on the letter is back while you learn them.',
+    harder: '<b>Five presses per digit</b>, a bigger chart, and the paddle is a little faster: 8 words per minute.' },
+  { name: 'Punctuation', add: '.,?!\'/()&:;=+-"@', hint: 'letter', key: 'paddle', wpm: 10,
+    intro: 'Full stop, comma, question mark and the other signs join the chart. Some sit beyond small empty rings: those are steps on the way, not characters.',
+    harder: 'Most signs take <b>six presses</b>, the longest patterns in Morse code. Paddle speed: 10 words per minute.' },
+  { name: 'Everything, from memory', add: '', hint: 'none', key: 'paddle', wpm: 13,
+    intro: 'Letters, numbers and punctuation, all mixed.',
+    harder: '<b>Nothing is marked</b> again, and the paddle runs at 13 words per minute.' },
+  { name: 'Full speed', add: '', hint: 'none', key: 'paddle', wpm: 16,
+    intro: 'The last level. Everything you have learned, at the speed of a practised operator.',
+    harder: 'The paddle runs at <b>16 words per minute</b>: a dot is only 75 milliseconds long.' },
+];
+const HINT_TEXT = { path: 'Yellow path to the letter', letter: 'Only the letter is marked', none: 'Nothing is marked' };
+const keyText = lv => lv.key === 'tap' ? 'Buttons' : 'Paddle, ' + lv.wpm + ' WPM';
+const levelOf = ch => LEVELS.findIndex(l => l.add.includes(ch)) + 1;
+// Difficulty of a letter: one point per dot or dash, plus one for every switch between dot and dash.
+function cost(ch) {
+  const c = LETTERS[ch][0];
+  let s = c.length;
+  for (let i = 1; i < c.length; i++) if (c[i] !== c[i - 1]) s++;
+  return s;
+}
+const wordCost = w => [...w].reduce((s, ch) => s + cost(ch), 0);
+const wordLevel = w => Math.max(...[...w].map(levelOf));
+const WORD_LIST = [
+  'E', 'T', 'TE', 'ET', 'TEE', 'TET', 'ETT', 'TETT',
+  'EN', 'TA', 'TI', 'NI', 'MAT', 'MIN', 'NEI', 'MEN', 'INN', 'ANT', 'TEMA', 'TIME', 'EMNE', 'MANN', 'TANN', 'NATT',
+  'TANTE', 'MINNE', 'MATTE', 'TENNE', 'NAME', 'TEAM', 'ITEM', 'MINT',
+  'OG', 'SE', 'DU', 'OST', 'SOS', 'DAG', 'TOG', 'ORD', 'MUS', 'MOR', 'ROM', 'KOS', 'SOT', 'SKOG', 'GUTT', 'STOR', 'NORD',
+  'KART', 'SAND', 'DAME', 'KODE', 'MORSE', 'RADIO', 'NORGE', 'ANKER', 'STEIN', 'TEGN', 'STREK', 'WATT', 'TWIST',
+  'SWING', 'DIKT', 'KUNST', 'TANKE',
+  'HEI', 'HAV', 'HUS', 'ELV', 'VEI', 'JA', 'SOL', 'LUFT', 'VIND', 'HUND', 'FISK', 'SKIP', 'HAVN', 'JORD', 'VANN', 'FJELL',
+  'HJELP', 'PILOT', 'LAMPE', 'FLAGG', 'PAPIR', 'PLASS', 'SJEF', 'VINTER', 'FLASKE', 'SIGNAL', 'TELEFON', 'TELEGRAF',
+  'BY', 'BOK', 'BIL', 'BRO', 'LYS', 'FYR', 'SYD', 'BOKS', 'BYGG', 'KYST', 'TAXI', 'YOGA', 'CAMP', 'QUIZ', 'JAZZ', 'ZOOM',
+  'PIZZA', 'ZEBRA', 'CELLO', 'SYKKEL', 'EKSTRA', 'COWBOY', 'XYLOFON', 'BATTERI', 'ALFABET',
+  // numbers
+  '24', '42', '100', '112', '113', '365', '007', '911', '1814', '1905', '2026', 'E6', 'A4', 'K2', 'U2', '5G', '3D',
+  'TV2', 'MP3', 'H2O', 'B52', 'F16', '4X4', 'A380', 'R2D2', 'C3PO',
+  // punctuation
+  'JA!', 'OK?', 'HEI!', 'SOS!', 'HVA?', 'NEI?', 'A+', 'A/B', 'C/O', 'A;B', 'X;Y', 'R&B', 'H&M', '(OK)', '(1)', '"JA"', '"OK"',
+  "IT'S", "ROCK'N", 'NR.1', 'KL.8', 'JA,NEI', 'A,B,C', '12:30', '10:45', '1+1=2', '2+2=4', 'E-POST', 'TV-EN', 'TO/FRA',
+  'X@Y.NO', 'OLA@POST.NO',
+];
+// A level that adds characters practises words containing them; the others use everything unlocked so far.
+const WORDS_BY_LEVEL = LEVELS.map((lv, i) =>
+  WORD_LIST.filter(w => lv.add ? wordLevel(w) === i + 1 : wordLevel(w) <= i + 1)
+    .sort((a, b) => wordCost(a) - wordCost(b)));
+
+const NS = 'http://www.w3.org/2000/svg';
+const el = (tag, attrs, parent) => {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  parent.appendChild(e);
+  return e;
+};
+const $ = id => document.getElementById(id);
+const store = {
+  get: k => { try { return localStorage.getItem('morse2.' + k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem('morse2.' + k, v); } catch {} },
+};
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+// ---- state ----
+const opts = { N: false, P: false };                                    // free mode extras, always start off
+let layout = store.get('layout') === 'card' ? 'card' : 'tree';          // tree is the default: easiest to read
+let input = ['tap', 'paddle', 'straight'].includes(store.get('input')) ? store.get('input') : 'tap';   // key type in Free mode
+let practice = store.get('mode') !== 'free';                            // Learn mode (true) or Free mode
+let level = clamp(+store.get('level') || 1, 1, LEVELS.length);
+let prog = clamp(+store.get('prog') || 0, 0, WORDS_PER_LEVEL - 1);      // words finished on this level
+let soundOn = store.get('sound') !== '0';
+let byCode = {}, chars = [];
+let code = '', preview = null, text = '';
+let pressed = false, downAt = 0, dashTimer, letterTimer, wordTimer, demoId = 0;
+let wordGapMs = WORD_GAP;
+let finished = false;   // all levels completed in this session
+let word = '', wi = 0, missed = false, stale = false, reachTimer, nextWordTimer;
+const guideCode = () => practice && wi < word.length ? LETTERS[word[wi]][0] : null;
+const saveProgress = () => { store.set('level', level); store.set('prog', prog); };
+
+// In Learn mode the level decides the key type and the paddle speed; in Free mode the settings do
+const keyMode = () => practice ? LEVELS[level - 1].key : input;
+const hint = () => ({
+  tap: '<kbd>←</kbd> dot <kbd>→</kbd> dash',
+  paddle: '<kbd>←</kbd> dot <kbd>→</kbd> dash <span class="extra">· hold to repeat, hold both to alternate</span>',
+  straight: '<kbd>Space</kbd> tap for dot, hold for dash',
+})[input] + ' <span class="extra">· pause to finish a letter</span>';
+
+function applyInput() {
+  const m = keyMode();
+  $('key').style.display = m === 'straight' ? '' : 'none';
+  $('paddles').style.display = m === 'straight' ? 'none' : 'flex';
+  for (const [id, name] of [['segTap', 'tap'], ['segPaddle', 'paddle'], ['segStraight', 'straight']])
+    $(id).classList.toggle('on', input === name);
+  const rep = m === 'paddle' ? ' Hold to repeat.' : '';
+  $('btnDot').title = 'Dot: the short sound.' + rep;
+  $('btnDash').title = 'Dash: the long sound.' + rep;
+}
+
+// (Re)draw the chart for the current mode, level and layout
+function build() {
+  const lv = LEVELS[level - 1];
+  const unlocked = LEVELS.slice(0, level).map(l => l.add).join('');
+  chars = Object.keys(LETTERS).filter(k => {
+    const c = category(k);
+    if (c === 'J') return false;
+    return practice ? unlocked.includes(k) : c === 'L' || opts[c];
+  });
+  const codes = chars.map(k => LETTERS[k][0]);
+  const tree = layout === 'tree';
+  const root = tree ? { x: 500, y: TREE_Y[0] } : ROOT;
+  byCode = { '': root };
+  for (const [k, [c, x, y, shape, dx, dy]] of Object.entries(LETTERS)) {
+    const isChar = chars.includes(k);
+    // keep disabled characters only as junctions on the way to an enabled one
+    if (!isChar && !codes.some(o => o !== c && o.startsWith(c))) continue;
+    byCode[c] = { letter: k, code: c, x, y, dx, dy, blank: !isChar,
+                  shape: isChar ? shape : SMALL[shape], punct: category(k) === 'P',
+                  fresh: practice && isChar && lv.add.includes(k) };
+    if (tree) Object.assign(byCode[c], {
+      x: treeX(c), y: TREE_Y[c.length], dx: 0, dy: TREE_F[c.length] * 0.35,
+      shape: isChar ? 'c' : 'sc', r: isChar ? TREE_R[c.length] : 6, font: TREE_F[c.length],
+    });
+  }
+  $('card').classList.toggle('tree', tree);
+  $('cardDeco').style.display = tree ? 'none' : '';
+  $('treeDeco').style.display = tree ? '' : 'none';
+  $('segCard').classList.toggle('on', !tree);
+  $('segTree').classList.toggle('on', tree);
+  $('segLearn').classList.toggle('on', practice);
+  $('segFree').classList.toggle('on', !practice);
+  $('learnCtl').style.display = practice ? '' : 'none';
+  $('freeCtl').style.display = practice ? 'none' : '';
+  $('dock').classList.toggle('learn', practice);
+  $('lvLabel').textContent = 'Level ' + level + ' / ' + LEVELS.length;
+  $('lvDown').disabled = level <= 1;
+  $('lvUp').disabled = level >= LEVELS.length;
+  $('optN').classList.toggle('on', opts.N);
+  $('optP').classList.toggle('on', opts.P);
+  $('sound').classList.toggle('on', soundOn);
+  applyInput();
+
+  $('halos').replaceChildren(); $('edges').replaceChildren(); $('nodes').replaceChildren();
+  let minX = root.x, maxX = root.x, maxY = root.y;
+  const nodes = Object.values(byCode).filter(n => n.code).sort((a, b) => a.code.length - b.code.length);
+  for (const n of nodes) {
+    const p = byCode[n.code.slice(0, -1)];
+    const kind = tree ? (n.code.endsWith('.') ? ' dot' : ' dash') : '';
+    n.halo = el('line', { class: 'halo', x1: p.x, y1: p.y, x2: n.x, y2: n.y }, $('halos'));
+    n.edge = el('line', { class: 'edge' + kind, x1: p.x, y1: p.y, x2: n.x, y2: n.y }, $('edges'));
+    const g = n.g = el('g', { class: 'node' + (n.fresh ? ' new' : '') }, $('nodes'));
+    if (n.shape === 'c' || n.shape === 'sc')
+      el('circle', { class: 'shape', cx: n.x, cy: n.y, r: n.r || (n.shape === 'c' ? 13 : 7) }, g);
+    else {
+      const [w, h] = SIZE[n.shape];
+      el('rect', { class: 'shape', x: n.x - w / 2, y: n.y - h / 2, width: w, height: h, rx: 3 }, g);
+    }
+    minX = Math.min(minX, n.x - 24); maxX = Math.max(maxX, n.x + 24); maxY = Math.max(maxY, n.y + 24);
+    if (n.blank) { g.style.cursor = 'default'; continue; }
+    const t = el('text', { x: n.x + n.dx, y: n.y + n.dy }, g);
+    t.textContent = n.letter;
+    if (n.punct) t.setAttribute('class', 'punct');
+    if (n.font) t.style.fontSize = n.font + 'px';
+    g.addEventListener('click', () => demo(n.letter));
+    minX = Math.min(minX, n.x + n.dx - 12); maxX = Math.max(maxX, n.x + n.dx + 12);
+    maxY = Math.max(maxY, n.y + n.dy + 6);
+  }
+  // the tree is cropped to the letters shown, so early levels are drawn larger
+  // (the card keeps a minimum size so its title and corner hole always fit)
+  const x0 = tree ? Math.min(minX - 30, 130) : Math.min(minX - 24, 145);
+  const x1 = tree ? Math.max(maxX + 30, 870) : Math.max(maxX + 24, 500);
+  const y1 = tree ? Math.max(maxY + 18, 300) : Math.max(maxY + 28, 290);
+  const svg = $('card');
+  svg.setAttribute('viewBox', `${x0 - 4} 0 ${x1 - x0 + 8} ${y1 + 8}`);
+  for (const [k, v] of Object.entries({ x: x0, y: 4, width: x1 - x0, height: y1 })) $('bg').setAttribute(k, v);
+  $('hole').setAttribute('cx', x1 - 28); $('hole').setAttribute('cy', 34);
+
+  // drop anything in flight
+  demoId++; clearTimeout(letterTimer); clearTimeout(wordTimer); letterTimer = null;
+  clearTimeout(reachTimer); clearTimeout(nextWordTimer);
+  code = ''; preview = null; finished = false; svg.classList.remove('err');
+  if (practice) newWord(); else setStatus(hint());
+  render();
+}
+
+const pretty = c => c.replace(/\./g, '·').replace(/-/g, '–');
+function render() {
+  const g = guideCode();
+  // help on the chart: set by the level; a wrong turn brings one step of help back for that letter
+  let help = g ? LEVELS[level - 1].hint : 'none';
+  if (g && missed) help = help === 'none' ? 'letter' : 'path';
+  for (const n of Object.values(byCode)) {
+    if (!n.code) continue;
+    const onPath = code.startsWith(n.code);
+    const ahead = !!g && g.startsWith(n.code) && !onPath;
+    n.halo.classList.toggle('on', ahead && help === 'path');
+    n.g.classList.toggle('guide', ahead && help === 'path' && n.code !== g);
+    n.g.classList.toggle('target', ahead && help !== 'none' && n.code === g);
+    n.g.classList.toggle('active', n.code === code);
+    n.g.classList.toggle('trail', onPath && n.code !== code);
+    n.g.classList.toggle('preview', n.code === preview);
+    n.edge.classList.toggle('lit', onPath);
+  }
+  $('symbols').textContent = pretty(code);
+  $('text').textContent = text;
+}
+
+function setStatus(html, cls = '') { $('status').innerHTML = html; $('status').className = cls; }
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+// ---- sound ----
+let ctx, gain;
+function tone(on) {
+  if (!soundOn) return;
+  if (!ctx) {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    gain = ctx.createGain();
+    osc.frequency.value = 620; gain.gain.value = 0;
+    osc.connect(gain).connect(ctx.destination); osc.start();
+  }
+  if (ctx.state === 'suspended') ctx.resume();
+  gain.gain.cancelScheduledValues(ctx.currentTime);
+  gain.gain.setTargetAtTime(on ? 0.2 : 0, ctx.currentTime, 0.008);
+}
+
+// ---- straight key ----
+function keyDown() {
+  if (pressed) return;
+  freshStart();
+  demoId++;
+  pressed = true; downAt = performance.now();
+  clearTimeout(letterTimer); clearTimeout(wordTimer); letterTimer = null;
+  $('card').classList.remove('err');
+  $('key').classList.add('down');
+  $('keySym').textContent = '·';
+  preview = code + '.';
+  tone(true); render();
+  dashTimer = setTimeout(() => { preview = code + '-'; $('keySym').textContent = '–'; render(); }, DASH_MS);
+}
+
+function keyUp() {
+  if (!pressed) return;
+  pressed = false; clearTimeout(dashTimer); tone(false);
+  $('key').classList.remove('down');
+  $('keySym').innerHTML = '&nbsp;';
+  preview = null;
+  wordGapMs = WORD_GAP;
+  advance(performance.now() - downAt >= DASH_MS ? '-' : '.');
+}
+
+// A new press after a demo, an error flash or a finished letter starts from "start" again
+function freshStart() {
+  if (practice ? stale : !letterTimer) code = '';
+  stale = false;
+  clearTimeout(failTimer); clearTimeout(reachTimer);
+}
+
+function advance(sym, gap = LETTER_GAP) {
+  if (practice) return practiceAdvance(sym);
+  const next = code + sym;
+  // a run of dots may continue past the end of the tree: it can become the error sign
+  if (!byCode[next] && !/^\.{5,}$/.test(next)) return fail(next);
+  code = next; render();
+  letterTimer = setTimeout(commit, gap);
+}
+
+// ---- paddle keyer (iambic, mode A) ----
+// Two paddles: one sends dots, the other dashes. The keyer keeps the rhythm:
+// a dot is 1 unit, a dash 3, the gap between elements 1. Holding a paddle repeats
+// its element, squeezing both alternates. 3 units of silence end a character, 7 a word.
+let wpm = clamp(+store.get('wpm') || 6, 3, 20);
+const curWpm = () => practice ? LEVELS[level - 1].wpm || 6 : wpm;
+const unit = () => 1200 / curWpm();      // length of one dot in ms
+const held = { '.': false, '-': false };
+let keyerOn = false, keyerSym = null, keyerMemory = null, keyerBlocked = false, keyerTimer, beepTimer;
+
+function paddle(sym, down) {
+  if (held[sym] === down) return;
+  held[sym] = down;
+  $(sym === '.' ? 'btnDot' : 'btnDash').classList.toggle('down', down);
+  if (!down || pressed) return;
+  if (keyMode() !== 'paddle') return tapElement(sym);
+  keyerBlocked = false;
+  if (!keyerOn) sendElement(sym);
+  else if (sym !== keyerSym) keyerMemory = sym;   // pressed during the other element: send it next
+}
+
+// Plain buttons: one press, one sound, no rhythm to keep
+function tapElement(sym) {
+  freshStart();
+  demoId++;
+  clearTimeout(letterTimer); clearTimeout(wordTimer); letterTimer = null;
+  $('card').classList.remove('err');
+  wordGapMs = WORD_GAP;
+  clearTimeout(beepTimer); tone(true);
+  beepTimer = setTimeout(() => tone(false), sym === '.' ? 90 : 280);
+  advance(sym);
+}
+
+function sendElement(sym) {
+  const u = unit(), dur = sym === '.' ? u : 3 * u;
+  keyerOn = true; keyerSym = sym; keyerMemory = null;
+  freshStart();
+  demoId++;
+  clearTimeout(letterTimer); clearTimeout(wordTimer); letterTimer = null;
+  $('card').classList.remove('err');
+  wordGapMs = 4 * u;
+  clearTimeout(beepTimer); tone(true);
+  beepTimer = setTimeout(() => tone(false), dur);
+  advance(sym, dur + 3 * u);
+  // a wrong turn or a finished practice letter stops the repeat until a paddle is pressed again
+  if (stale) keyerBlocked = true;
+  keyerTimer = setTimeout(() => {
+    const other = sym === '.' ? '-' : '.';
+    const next = keyerBlocked ? null : keyerMemory || (held[other] ? other : held[sym] ? sym : null);
+    if (next) sendElement(next); else keyerOn = false;
+  }, dur + u);
+}
+
+let failTimer;
+function fail(bad, quiet) {
+  letterTimer = null; stale = true;
+  $('card').classList.add('err');
+  render();
+  if (!quiet) setStatus('Nothing for ' + pretty(bad) + ' — start again', 'bad');
+  clearTimeout(failTimer);
+  failTimer = setTimeout(() => {
+    $('card').classList.remove('err');
+    if (!pressed && !letterTimer) { code = ''; render(); }
+  }, 500);
+}
+
+// Free mode: a pause ends the character
+function commit() {
+  letterTimer = null;
+  if (/^\.{7,}$/.test(code)) return eraseWord();
+  if (!byCode[code] || byCode[code].blank) return fail(code);
+  const letter = byCode[code].letter;
+  code = '';
+  text += letter;
+  if ($('status').className === 'bad') setStatus(hint());
+  wordTimer = setTimeout(() => { if (text && !text.endsWith(' ')) { text += ' '; render(); } }, wordGapMs);
+  render();
+}
+
+// Error sign: more than six dots in a row means "ignore what I just sent" — delete the last word
+let eraseTimer;
+function eraseWord() {
+  const gone = (text.match(/(\S+)\s*$/) || [])[1];
+  text = text.replace(/\S+\s*$/, '');
+  code = ''; stale = true;
+  setStatus(gone ? 'Error sign ········ deleted “' + esc(gone) + '”' : 'Error sign ········ nothing to delete', 'bad');
+  clearTimeout(eraseTimer);
+  eraseTimer = setTimeout(() => { if (!practice && $('status').className === 'bad') setStatus(hint()); }, 2200);
+  render();
+}
+
+// ---- demo: play a character's path ----
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function demo(letter) {
+  if (pressed) return;
+  const id = ++demoId;
+  clearTimeout(letterTimer); clearTimeout(wordTimer); letterTimer = null;
+  const seq = LETTERS[letter][0];
+  code = ''; preview = null; stale = true; render();
+  if (!practice) setStatus('<b>' + esc(letter) + '</b> = ' + [...seq].map(s => s === '.' ? 'dot' : 'dash').join(' · '));
+  await sleep(250);
+  for (const s of seq) {
+    if (id !== demoId) return;
+    preview = code + s; render(); tone(true);
+    await sleep(s === '.' ? 130 : 400);
+    tone(false);
+    if (id !== demoId) return;
+    preview = null; code += s; render();
+    await sleep(220);
+  }
+  await sleep(900);
+  if (id !== demoId) return;
+  code = ''; render();
+}
+
+// ---- Learn mode: spell a word by following the path, one letter at a time ----
+function newWord() {
+  if (!practice) return;
+  const list = WORDS_BY_LEVEL[level - 1];
+  // easier words first: slide a window over the list (sorted by difficulty) as the level progresses
+  const win = Math.max(3, Math.ceil(list.length / 3));
+  const from = Math.floor((list.length - win) * prog / (WORDS_PER_LEVEL - 1));
+  const pool = list.slice(from, from + win).filter(w => w !== word);
+  word = pool[Math.floor(Math.random() * pool.length)];
+  wi = 0; code = ''; stale = true; missed = false;
+  showWord(); render();
+}
+
+function showWord() {
+  const done = wi >= word.length;
+  const lv = LEVELS[level - 1];
+  const tiles = [...word].map((ch, i) => `<i class="w ${i < wi ? 'done' : i === wi ? 'cur' : ''}">${esc(ch)}</i>`).join('');
+  let tip;
+  if (done) tip = 'Well done!';
+  else if (finished && wi === 0) tip = '<b>You have finished every level!</b> Keep practising, or try Free mode';
+  else if (prog === 0 && wi === 0 && lv.add) tip = 'New on this level: <b>' + esc([...lv.add].join(' ')) + '</b>';
+  else tip = { path: 'Follow the yellow path to the next letter',
+               letter: 'Go to the marked letter — the way there is up to you',
+               none: 'Find the letter yourself' }[lv.hint];
+  setStatus(
+    `<div class="tiles">${tiles}${done ? '<b class="tick">✓</b>' : ''}</div>` +
+    `<div class="sub">Word ${prog + 1} of ${WORDS_PER_LEVEL} <span class="extra">· difficulty ${wordCost(word)}</span> · ${tip}</div>`,
+    'word');
+}
+
+// No time limit here: every press must follow the path to the current letter
+function practiceAdvance(sym) {
+  const g = guideCode();
+  if (!g) return;                        // between words
+  const next = code + sym;
+  if (!g.startsWith(next)) {             // wrong turn: show where it led, then start the letter again
+    if (byCode[next]) code = next;
+    missed = true;                       // one step of help comes back for this letter
+    return fail(next, true);
+  }
+  code = next;
+  if (code === g) {                      // letter reached: on to the next one
+    stale = true; missed = false; wi++;
+    showWord();
+    reachTimer = setTimeout(() => { code = ''; render(); }, 650);
+    if (wi >= word.length) nextWordTimer = setTimeout(wordDone, 1500);
+  }
+  render();
+}
+
+function wordDone() {
+  if (prog + 1 < WORDS_PER_LEVEL) { prog++; saveProgress(); return newWord(); }
+  if (level < LEVELS.length) { level++; prog = 0; saveProgress(); build(); return showLevel(); }
+  // last level finished: keep practising without the path
+  finished = true;
+  newWord();
+}
+
+// Pop-up shown when a level starts: what is new, and what makes it harder
+function showLevel() {
+  const lv = LEVELS[level - 1];
+  $('lvTitle').textContent = 'Level ' + level + ': ' + lv.name;
+  $('lvBody').innerHTML =
+    `<p>${lv.intro}</p>` +
+    (level > 1 ? '<h3>What makes it harder</h3>' : '<h3>How it starts</h3>') +
+    `<p class="harder">${lv.harder}</p>` +
+    '<ul class="facts">' +
+    `<li><span>New characters</span><span class="mono">${lv.add ? esc([...lv.add].join(' ')) : '—'}</span></li>` +
+    `<li><span>Help on the chart</span><span>${HINT_TEXT[lv.hint]}</span></li>` +
+    `<li><span>Key</span><span>${lv.key === 'tap' ? 'Buttons: one press, one sound' : 'Paddle at ' + lv.wpm + ' words per minute: hold to repeat'}</span></li>` +
+    '</ul>';
+  store.set('seen', Math.max(+store.get('seen') || 0, level));
+  paddle('.', false); paddle('-', false); keyUp();
+  if (!$('dlgLevel').open) $('dlgLevel').showModal();
+}
+
+// ---- wiring ----
+const dialogOpen = () => !!document.querySelector('dialog[open]');
+const key = $('key');
+key.addEventListener('pointerdown', e => { e.preventDefault(); key.setPointerCapture(e.pointerId); keyDown(); });
+key.addEventListener('pointerup', keyUp);
+key.addEventListener('pointercancel', keyUp);
+key.addEventListener('contextmenu', e => e.preventDefault());
+key.addEventListener('keydown', e => e.preventDefault());
+window.addEventListener('keydown', e => {
+  if (dialogOpen()) return;
+  if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) keyDown(); }
+  else if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+    e.preventDefault();
+    paddle(e.code === 'ArrowLeft' ? '.' : '-', true);
+  }
+});
+window.addEventListener('keyup', e => {
+  if (e.code === 'Space') { if (!dialogOpen()) e.preventDefault(); keyUp(); }
+  else if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') paddle(e.code === 'ArrowLeft' ? '.' : '-', false);
+});
+window.addEventListener('blur', () => { keyUp(); paddle('.', false); paddle('-', false); });
+
+for (const [id, sym] of [['btnDot', '.'], ['btnDash', '-']]) {
+  const b = $(id);
+  b.addEventListener('pointerdown', e => { e.preventDefault(); b.setPointerCapture(e.pointerId); paddle(sym, true); });
+  b.addEventListener('pointerup', () => paddle(sym, false));
+  b.addEventListener('pointercancel', () => paddle(sym, false));
+  b.addEventListener('contextmenu', e => e.preventDefault());
+  b.addEventListener('keydown', e => e.preventDefault());
+}
+
+const onClick = (id, fn) => $(id).addEventListener('click', e => { e.currentTarget.blur(); fn(); });
+onClick('segLearn', () => { if (!practice) { practice = true; store.set('mode', 'learn'); build(); } });
+onClick('segFree', () => { if (practice) { practice = false; store.set('mode', 'free'); build(); } });
+onClick('lvDown', () => { level = clamp(level - 1, 1, LEVELS.length); prog = 0; saveProgress(); build(); showLevel(); });
+onClick('lvUp', () => { level = clamp(level + 1, 1, LEVELS.length); prog = 0; saveProgress(); build(); showLevel(); });
+onClick('lvLabel', showLevel);
+onClick('segTap', () => { input = 'tap'; store.set('input', input); applyInput(); if (!practice) setStatus(hint()); });
+onClick('optN', () => { opts.N = !opts.N; build(); });
+onClick('optP', () => { opts.P = !opts.P; build(); });
+onClick('segTree', () => { layout = 'tree'; store.set('layout', layout); build(); });
+onClick('segCard', () => { layout = 'card'; store.set('layout', layout); build(); });
+onClick('segPaddle', () => { input = 'paddle'; store.set('input', input); applyInput(); if (!practice) setStatus(hint()); });
+onClick('segStraight', () => { input = 'straight'; store.set('input', input); applyInput(); if (!practice) setStatus(hint()); });
+onClick('sound', () => {
+  soundOn = !soundOn; store.set('sound', soundOn ? '1' : '0');
+  if (!soundOn && gain) gain.gain.value = 0;
+  $('sound').classList.toggle('on', soundOn);
+});
+onClick('clear', () => { text = ''; code = ''; render(); });
+onClick('btnSettings', () => $('dlgSettings').showModal());
+onClick('btnHelp', () => $('dlgHelp').showModal());
+for (const d of document.querySelectorAll('dialog')) {
+  for (const b of d.querySelectorAll('[data-close]')) b.addEventListener('click', () => d.close());
+  d.addEventListener('click', e => { if (e.target === d) d.close(); });   // click on the backdrop
+}
+$('wpm').value = wpm; $('wpmOut').textContent = wpm + ' WPM';
+$('wpm').addEventListener('input', e => {
+  wpm = +e.target.value; store.set('wpm', wpm);
+  $('wpmOut').textContent = wpm + ' WPM';
+});
+LEVELS.forEach((lv, i) => {
+  const tr = $('lvTable').insertRow();
+  for (const v of [i + 1 + '. ' + lv.name, lv.add ? [...lv.add].join(' ') : '—', HINT_TEXT[lv.hint], keyText(lv)])
+    tr.insertCell().textContent = v;
+});
+
+build();
+if (practice && (+store.get('seen') || 0) < level) showLevel();   // first visit: explain the level
+</script>
+</body>
+</html>
